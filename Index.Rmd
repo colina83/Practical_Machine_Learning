@@ -1,0 +1,158 @@
+---
+title: "Machine Learning - Final Project"
+author: "FCS"
+date: "9/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(gbm)
+library(dplyr)
+library(AppliedPredictiveModeling)
+library(parallel)
+library(doParallel)
+library(gt)
+```
+
+# Introduction
+
+The goal of the project is to quantify and predict the manner in which a gorup of individuals excercise, based on data gathering from a dvice, this is an emerging field called HAR ( HUman Activity Recognition)
+
+## Data Loading
+
+The first step is to load 2 data sets a training data set that will be use to build a prediction model, and a testing dataset that will be use to cross-validate our prediction model
+
+```{r Data Initialization}
+
+# Training Data Set
+training_data = read.csv("~/R Course/Practical Machine Learning/Final Project/pml-training.csv")
+dim(training_data)
+sum(is.na(training_data)) # Large amount of NA's in the dataset
+Number_of_NA <- as.data.frame(colSums(is.na(training_data))) # As we can see, we have several variables that have 19216 NA, meaning missing data
+
+#Test Data Set
+testing_data = read.csv("~/R Course/Practical Machine Learning/Final Project/pml-testing.csv")
+dim(testing_data)
+sum(is.na(testing_data)) # Large amount of NA's in the dataset
+Number_of_NA_testing <- as.data.frame(colSums(is.na(testing_data))) # As we can see, we have several variables that have 19216 NA, meaning missing data
+
+
+```
+
+## Data Preparation 
+
+The data preparation is important in order to keep only the meaningful variables in our dataset, the variables that will remove are the following:
+
+1.- Irrelevant Data - "user_name", "cvtd_timestamp", "raw_timestamp_part_1", "raw_timestamp_part_2", "new_window", "X"
+2.- Data containing NA's
+
+```{r Data Preprocessing, echo=T, results='hide'}
+
+# Pre-Processing the Training Data Set
+
+training_data <- select(training_data, -user_name,-cvtd_timestamp,-raw_timestamp_part_1,-raw_timestamp_part_2, -new_window, -X)
+V_training_data <- training_data[,colSums(is.na(training_data)) < 0.95*nrow(training_data)] # The logic here is that we are removing any variable with less than 95% of data
+V_training_data <- V_training_data[,-c(6:14)]
+V_training_data <- V_training_data[,-c(28:33)]
+V_training_data <- V_training_data[,-c(31:39)]
+V_training_data <- V_training_data[,-c(44:50)]
+V_training_data <- V_training_data[,-c(44:45)]
+dim(V_training_data) # We drop more than half of the variables 
+
+# Pre-Processing the Test Data set
+
+testing_data <- select(testing_data, -user_name,-cvtd_timestamp,-raw_timestamp_part_1,-raw_timestamp_part_2, -new_window, -X)
+V_testing_data <- testing_data[,colSums(is.na(testing_data)) < 0.95*nrow(testing_data)] # The logic here is that we are removing any variable with less than 95% of data
+# The tesing data set has the same 54 variables
+
+
+```
+
+## Creating a Model
+
+In order to create a model,we must first create a training and a test set, in order to experiment with the model selection, my approach is simply to use several models and combined all of them in order to obtain an accurate result, now if the combination is not as good as any other model, we will simply take the more accurate model.
+
+As we can see the best model 
+
+
+```{r Data Modeling}
+
+inTrain = createDataPartition(V_training_data$classe, p = 3/4)[[1]]
+
+training = V_training_data[ inTrain,]
+
+testing = V_training_data[-inTrain,]
+
+set.seed = 62433
+
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+
+# Configuring Train Control for Random Forest
+
+fitControl <- trainControl(method = "cv",number = 5,allowParallel = TRUE)
+
+
+rf <- train(classe~., data = training, method = "rf", trControl = fitControl)
+
+stopCluster(cluster)
+registerDoSEQ()
+
+bt <- train(classe~., data = training, method = "gbm")
+
+LDA <- train(classe~ ., data = training, method = "lda")
+
+A = max(rf$results$Accuracy)
+B = max(bt$results$Accuracy)
+C = max(LDA$results$Accuracy)
+
+Result = A*B*C+(1-A)*B*C+A*(1-B)*C+A*B*(1-C)
+
+table = matrix(NA, nrow =  1, ncol =5)
+
+colnames(table) = c("Metric", "Random Forest", "Gradient Boosting", "LDA", "Combination")
+
+table[1,] = c("Accuracy", A, B, C, Result)
+print(table) # AS we can see the model that we will be using is the one with the highest Accuracy in this case Random Forest 
+
+
+
+
+
+
+```
+
+# Model Selection and Testing
+
+We already have selected random forest as the correct algorithm for this dataset, now we need to cross-validate our model, from the table below it is clear that our model has a 99% prediction accuracy.
+
+```{r Cross-Validation}
+
+
+Prediction <- predict(rf,testing)
+
+confusionMatrix(Prediction, testing$classe )
+
+
+```
+
+# Prediction using the Test Data
+
+Now we are going to use the Test Data set in order to predict 20 observations, this is part of the second part of the project that will evaluate the prediction model
+
+```{r Prediction}
+
+Prediction_testdata <- predict(rf, V_testing_data)
+
+
+
+```
+
+# Conslusions
+
+The reality is that it's very difficult to acertain the accuracy of the model for different activities, but it could give some insights on how to best perform certain type of movemen patterns.
+
+
+
